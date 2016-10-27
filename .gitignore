@@ -1,3 +1,13 @@
 .DS_STORE
 *.o
 sm_parallel
+
+*.aux
+*.bbl
+*.blg
+*.lof
+*.log
+*.lot
+*.out
+*.gz
+*.toc
