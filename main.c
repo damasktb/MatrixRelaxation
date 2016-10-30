@@ -4,12 +4,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <unistd.h>
 
 #define likely(x)       __builtin_expect((x),1)
 #define unlikely(x)     __builtin_expect((x),0)
 
 #define DUMMY_3x3 {1, 1, 1, 1, 3, 1, 1, 1, 1}
 #define DUMMY_4x4 {1, 1, 1, 1, 1, 4, 4, 1, 1, 4, 4, 1, 1, 1, 1, 1}
+
+struct args_t 
+{
+    int verbosity; // -v
+    int dimension; // -d
+    double precision; // -p
+    int threads;   // -t
+    char* file;    // -f
+} args;
 
 typedef struct thread_work
 {
@@ -70,7 +80,7 @@ void populate_random(double **one, double **two, int nrows, int ncols)
     }
 }
 
-void populate_values(double vals[]
+void populate_values(double vals[],
                     int nvals,
                     double **one, 
                     double **two, 
@@ -117,84 +127,89 @@ void *relax_section(void *work_ptr)
     return NULL;
 }
 
-int main(void)
+void process_options(int argc, char **argv)
 {
-    int nrows = 7;
-    double precision = (double)0.05;
-    int nthreads = 4;
-
-    printf("Enter array dimension: ");
-    scanf("%d", &nrows);
-
-    printf("Enter precision: ");
-    scanf("%lf", &precision);
-
-    printf("Enter number of threads: ");
-    scanf("%d", &nthreads);
-
-    int ncols = nrows;
-    int work_rows = (nrows-2)/nthreads;
-    int work_remainder = (nrows-2)%nthreads;
-    thread_work_t* all_work = malloc(nthreads*sizeof(thread_work_t));
-
-    if (unlikely(all_work==NULL))
-    {
-        return 1;
+    const char *opt_string = "v:d:p:t:f:";
+    int opt = getopt(argc, argv, opt_string);
+    while( opt != -1 ) {
+        switch( opt ) {
+            case 'v':
+                args.verbosity = 1;
+                break;
+            case 'd':
+                args.dimension = atoi(optarg);
+                break;
+            case 'p':
+                args.precision = atof(optarg);
+                break;
+            case 't':
+                args.threads = atoi(optarg);
+                break;
+            case 'f':   
+                args.file = optarg;
+                break;
+            default:
+                break;
+        }
+        opt = getopt(argc, argv, opt_string);
     }
-    
-    double **from = malloc(nrows*sizeof(double*));
-    double **to   = malloc(nrows*sizeof(double*));
-    double *from_buf = malloc(nrows*ncols*sizeof(double));
-    double *to_buf   = malloc(nrows*ncols*sizeof(double));
+}
 
-    if (unlikely(from==NULL || from_buf== NULL || to==NULL || to_buf== NULL))
-    {
-        return 1;
-    }
-    
-    for (int i=0; i<nrows; ++i)
-    {
-        from[i] = from_buf + ncols*i;
-        to[i] = to_buf + ncols*i;
-    }
-
-    populate_random(from, to, nrows, ncols);
-
-    int next_start=1;
+void assign_thread_work(thread_work_t *all_work,
+                        int row_split, 
+                        int work_remainder,
+                        int nrows,
+                        int ncols,
+                        int nthreads)
+{
+    int next_start=1; // The next thread's starting row
     for (int t=0; t<nthreads; ++t)
     {
         thread_work_t work = 
         {
-            .read_from = from,
-            .write_to = to,
+            .read_from = NULL,
+            .write_to = NULL,
             .start_row = next_start,
-            .finish_row = next_start+work_rows-1 + (t<work_remainder ? 1:0),
+            .finish_row = next_start+row_split-1 + (t<work_remainder ? 1:0),
             .nrows = nrows,
             .ncols = ncols
         };
         next_start = work.finish_row+1;
-        printf("Thread %d doing rows %d-%d\n", t, work.start_row, work.finish_row);
+        //printf("Thread %d doing rows %d-%d\n", t, work.start_row, work.finish_row);
         all_work[t] = work;
     }
+}
 
-
+int relax_matrix(double **from, 
+                 double **to,
+                 thread_work_t *work, 
+                 int nrows,
+                 int ncols,
+                 int nthreads,
+                 double precision)
+{
     pthread_t threads[nthreads];
     int relaxed = 0, count = 0;
     while (!relaxed)
     {
         for (int t=0; t<nthreads; ++t)
         {   
+            /* Every other iteration we read from the array we last wrote
+             * to and write to the other one. Maintaining two arrays means
+             * no locking is required, since no two threads write to the
+             * same cell.
+             */
             if (count%2)
             {
-                all_work[t].read_from = to;
-                all_work[t].write_to = from;
+                work[t].read_from = to;
+                work[t].write_to = from;
             }
             else
             {
-                all_work[t].read_from = from;
-                all_work[t].write_to = to;
+                work[t].read_from = from;
+                work[t].write_to = to;
             }
-            if (pthread_create(&threads[t], NULL, relax_section, &all_work[t]))
+            if (pthread_create(&threads[t], NULL, relax_section, &work[t]))
             {
                 fprintf(stderr, "Failed creating thread %d\n", t);
                 return 1;
@@ -212,11 +227,61 @@ int main(void)
         ++count;
     }
     printf("Reached in %d iterations.\n", count);
+    return 0;
+}
 
+int main(int argc, char **argv)
+{
+    /* If any of the args are invalid, fall back to these defaults */
+    args.verbosity = 0;
+    args.dimension = 20;
+    args.precision = 0.01;
+    args.threads = 4;
+    args.file = NULL;
+
+    process_options(argc, argv);
+
+    int nrows = args.dimension, ncols = args.dimension;
+    double precision = args.precision;
+    int nthreads = args.threads;
+
+    thread_work_t* all_work = malloc(nthreads*sizeof(thread_work_t));
+    if (unlikely(all_work==NULL))
+    {
+        return 1;
+    }
+    
+    /* Allocate the read-from and write-to arrays */
+    double **from = malloc(nrows*sizeof(double*));
+    double **to   = malloc(nrows*sizeof(double*));
+    double *from_buf = malloc(nrows*ncols*sizeof(double));
+    double *to_buf   = malloc(nrows*ncols*sizeof(double));
+    if (unlikely(from==NULL || from_buf== NULL || to==NULL || to_buf== NULL))
+    {
+        return 1;
+    }
+    for (int i=0; i<nrows; ++i)
+    {
+        from[i] = from_buf + ncols*i;
+        to[i] = to_buf + ncols*i;
+    }
+
+    populate_random(from, to, nrows, ncols);
+
+    /* The total number of rows to be worked on is nrows minus the first 
+     * and last. Each thread does a minimum of (nrows-2)/nthreads and a
+     * maximum of ((nrows-2)/nthreads)+1 rows, depending on the remainder.
+     */
+    int row_split = (nrows-2)/nthreads;
+    int work_remainder = (nrows-2)%nthreads;
+    assign_thread_work(all_work, row_split, work_remainder, nrows, ncols, nthreads);
+
+    int err = relax_matrix(from, to, all_work, nrows, ncols, nthreads, precision);
+    
     free(from);
     free(to);
     free(from_buf);
     free(to_buf);
     free(all_work);
-    return 0;
+    return err;
 }
