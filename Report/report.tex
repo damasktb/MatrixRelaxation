@@ -10,6 +10,12 @@
 \usepackage[compact]{titlesec}
 \usepackage{longtable}
 \usepackage{array}
+\usepackage{listings}
+\lstset { %
+    language=C++,
+    backgroundcolor=\color{black!5}, % set backgroundcolor
+    basicstyle=\ttfamily\footnotesize,% basic font setting
+}
 \usepackage{bchart}
 \usepackage{booktabs}
 
@@ -32,8 +38,22 @@
 \clearpage
 \section{Approach to Parallelisation}
 
+
+
 \clearpage
-\section{Correctness Testing}
+\section{Testing}
+
+\subsection{Correctness Testing}
+
+\subsection{Testing}
+
+\lstset {language=C}
+\begin{lstlisting}
+for (int i=0; i<iterations;i++)
+{
+	do something
+}
+\end{lstlisting}
 
 \clearpage
 \section{Scalability Investigation}
@@ -46,7 +66,7 @@
 \begin{appendices}
 
 \clearpage
-\section{Full Correctness Testing Results}
+\section{Full Testing Results}
 
 \clearpage
 \section{Full Scalability Results}
