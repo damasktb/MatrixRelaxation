@@ -212,7 +212,7 @@ I conducted a single experiment into the effects of lowering the precision thres
 \end{figure}
 
 
-I tried to run my solution on a precision of 0.0000001, but it timed out on Balena, due to either exceeding the 15 minute limit while relaxing, or reaching the point at which applying the relax operation left every cell unchanged. Not every matrix when relaxed to under a given precision will terminate; a trivial example of this is a matrix of any dimensions where every element is 1, and the precision is any positive value. My implementation does not attempt to identify these cases and would therefore loop infinitely for precision values which aren't reachable for a given matrix. Extrapolating from the trend of the graph, I expect that a precision of 0.0000001 was unreachable for the matrix in this case, as the time required should not have exceeded 15 minutes.
+I tried to run my solution on a precision of 0.0000001, but it timed out on Balena, due to either exceeding the 15 minute limit while relaxing, or reaching the point at which applying the relax operation left every cell unchanged. Not every matrix when relaxed to under a given precision will terminate. My implementation does not attempt to identify these cases and would therefore loop infinitely for precision values which aren't reachable for a given matrix. Extrapolating from the trend of the graph, I expect that a precision of 0.0000001 was unreachable for the matrix in this case, as the time required should not have exceeded 15 minutes.
 
 
 \clearpage
