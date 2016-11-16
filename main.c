@@ -256,9 +256,9 @@ void process_options(int argc, char **argv)
 {
     const char *opt_string = "vd:p:t:";
     int opt = getopt(argc, argv, opt_string);
-    while( opt != -1 ) 
+    while(opt != -1) 
     {
-        switch( opt ) 
+        switch(opt) 
         {
             case 'v':
                 args.verbosity = 1;
