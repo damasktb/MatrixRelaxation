@@ -54,7 +54,7 @@ void print_matrix(double **arr, int nrows, int ncols)
  */
 void populate_random(double **one, double **two, int nrows, int ncols) 
 {
-    srand((unsigned)time(NULL));
+    //srand((unsigned)time(NULL));
     for (int i=0; i<nrows; ++i)
     {
         for (int j=0; j<ncols; ++j)
