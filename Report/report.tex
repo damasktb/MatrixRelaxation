@@ -24,7 +24,7 @@
 \usepackage{tikz}
 
 
-\title{\textbf{Parallel Computing Assignment 1 \\ Shared Memory}}
+\title{\textbf{Parallel Computing Assignment 2 \\ Distributed Memory}}
 
 \begin{document}
 \maketitle
@@ -39,50 +39,50 @@
 
 \subsection{Introduction}
 
-The assignment was to implement matrix relaxation for a shared memory architecture using pthreads, on a matrix $\mathcal{M}$ of variable square dimension $d$, using $t$ threads, working to a floating point precision of $p$.
+The assignment was to implement matrix relaxation for a distributed memory architecture using MPI, on a matrix $\mathcal{M}$ of variable square dimension $d$, using $c$ MPI processes each running on its own processor on one of $n$ nodes, working to a floating point precision of $p$. Since Balena doesn't permit oversubscription, $t$ will always be $\leq c$.
 
-My implementation uses two barriers and no other synchronisation primitives, taking advantage of the case of redundant-write data races discussed in \citep{benigndataraces} to avoid the overheads of locking a shared global variable.
+My solution uses \texttt{MPI\_Scatterv} and \texttt{MPI\_Gatherv} to distribute and reassemble the matrix among processors, and \texttt{MPI\_Allreduce} to broadcast and reduce a global exit condition status each iteration.
 
-\subsection{Preventing Data Races}
+\subsection{Partitioning the Matrix}
 
-Data races are one of the most difficult problems arising from multithreaded code to debug, due to the seemingly random nature of how threads are scheduled \citep{highleveldataraces}. They occur when concurrent threads attempt to access a shared variable (which is not protected by an explicit synchronisation mechanism) and at least one of the accesses is a write \citep{eraser}.
+The primary goal in partitioning the matrix for relaxation across multiple processors was to minimise the amount of data which needs to be passed between nodes, as network I/O is orders of magnitude slower than accessing data from memory on the same node, or CPU cache.
 
-I order to preserve the consistency of data being read by performing the \textit{relax} operation on a different cell, no cell can be overwritten with its new value until the new value every other cell has been calculated. This is the case regardless of whether the relaxation is performed sequentially or in parallel, and necessitates using a second matrix of the same dimensions, into which the relaxed values are written. After each complete relaxation, the two matrices can then be swapped so that the result of the most recent iteration can be relaxed, overwriting the result of the second most recent. There is of course additional space complexity associated with allocating space for $2n$ elements, but this is still linear ($\mathcal{O}(2n)$ generalises to $\mathcal{O}(n)$) and is therefore a reasonable trade-off against the overheads of alternative solutions.
+To avoid overly complicating my solution for negligible fairness gains, I chose not to split rows of the matrix between different processes and only assigned processes a whole number of rows to work on. Relaxing a square matrix of size $n \times n$ with $c$ processes requires $(n-2)$ rows to be relaxed each iteration minus the first and last values of each row, as the array boundary values remain fixed.
 
-Although during the process of relaxation any cell $a_{i,j}$ will be read as part of performing the \textit{relax} operation on at most four of its neighbours ($a_{i-1,j}, a_{i,j-1}, a_{i+1, j}$ and $a_{i,j+1}$), it will only ever be written to when $a_{i,j}$ itself is relaxed. This means that no synchronisation is required when writing values to the second array, as write-access to every element is guaranteed to only happen once, during which time there are no reads. Similarly, checking the precision of a cell requires one read operation in each array but no writes, so again avoids potential races.
+Every process relaxes a minimum of $(n-2)$ div $c$ rows, where div is the integer division operation. This leaves $(n-2)$ mod $c$ cells remaining, and as MPI is SPMD and therefore not run in lockstep there is no way of predicting which processor will finish first, for the sake of simplicity this leaves the first $((n-2)$ mod $c)$ processes assigned to do $((n-2)$ div $c) + 1$ rows each.
 
-\subsection{Division of Work}
+Since each process only works on a subset of the complete matrix and there is a 1:1 ratio of MPI processes to real processors, there is no need to generate, store, or update the entire matrix on every core. This massively reduces the overhead of updating data after each iteration and the overhead of allocation.
 
-Relaxing a square matrix of size $n \times n$ with $t$ threads requires $(n-2)^2$ cells to be relaxed each iteration, as the array boundary values remain fixed. Dividing the work as evenly as possible can be done with simple arithmetic.
+\begin{figure}[!htbp]
+        \centering\includegraphics[width=.9\textwidth]{img/rowduplication.pdf}
+        \caption{Additional rows required (blue) to relax elements in a single row (yellow).}
+        \label{fig:duplicates}
+    \end{figure}
 
-All threads relax a minimum of $(n-2)^2$ div $t$ cells, where div is the integer division operation. This leaves $(n-2)^2$ mod $t$ cells remaining, and as there is no way of predicting how each thread will be scheduled and therefore which ones will finish first, for the sake of simplicity this leaves the first $((n-2)^2$ mod $t)$ threads assigned to do $((n-2)^2$ div $t) + 1$ cells each.
+As Figure \ref{fig:duplicates} illustrates, irrespective of how many partitions the matrix is split into, each CPU will require the rows immediately before and after its partition in a read-only capacity. This overhead is significant in Figure \ref{fig:duplicates} (200\%), and it can be seen that for an $n\times{n}$ matrix, it is inefficient (i.e. has an overhead $\geq$ 100\%) to have more than $\frac{n-2}{2}$ processors relaxing. From a practical parallelism standpoint, relaxing a matrix with dimensions only double that of the number of available processors is poor exploration of data parallelism and likely to be slower than a serial equivalent.
 
-Calculating the precision for a given cell is not dependent on the values of any of its adjacent neighbours, so threads both relax and compute the precision for every cell they are assigned, which avoids the cost of needlessly looping again.
+The complete $n\times{n}$ matrix is allocated and initialised from the root process and every processor (including the root) allocates space for $2n+\frac{(n-2)(n)}{c} +\frac{(n-2)(n)}{c}$ elements. The additional array of size $+\frac{(n-2)(n)}{c}$ is to preserve the consistency of data being read by performing the \textit{relax} operation; no cell can be overwritten with its new value until the new value every other cell has been calculated. This is the case regardless of whether the relaxation is performed sequentially or in parallel, and necessitates using a second matrix of the same dimensions, into which the relaxed values are written. These dimensions however, do not have to include the $2n$ read-only values from the rows above and below.
 
-Since array access in C is row-major, indexing into a row's columns is a faster operation than indexing into a column's rows, so I assign cells to threads by varying the second index in the inner loop.
+This allocation on each of $c$ processors, with an additional $n\times{n}$ on the root, gives a space complexity of $\mathcal{O}(3n^2 -4n + 2nc)$. When calculating space complexity, $c$ is constant as it is simply the number of processors so the space complexity is still asymptotic to $\mathcal{O}(n^2)$; the same space complexity as the shared memory equivalent solution which involved swapping two $n\times{n}$ arrays between iterations.
 
+After each iteration, each process sends the $\frac{n-2}{c}$ rows which it has relaxed back to the root process. In actuality, this is not necessary because only the first and last relaxed rows contain values which are needed by any other process, so only they need to be sent. I decided not to attempt to exploit this because it introduced additional complexity, however if I were attempting to scale my solution to much larger matrices, this would be the first optimisation I would make.
 
-\subsection{Thread Work}
+An additional optimisation I could have made was in the calculation of precision. My implementation avoids iterating over cells twice by both relaxing and calculating whether the precision has been reached in the same loop, rather than calculating precision once all cells have been relaxed within a process or from the root process. However, once a process encounters a cell whose new value differs from the old by more than the specified precision, it does not have to calculate the precision for any other values. I kept calculating every value however, as some of my testing used small precision values and it was useful that the values of \texttt{local\_continue} and \texttt{global\_continue} were exactly the number of cells where precision had yet to be reached.
 
-My approach to parallelising the solution was to reduce contention for global variables as much as possible. There are two global condition variables, \texttt{global\_continue} and \texttt{global\_done}. \texttt{global\_continue} gets set to 1 by any thread, if any of its cells did not reach the required precision, meaning another iteration is required. \texttt{global\_done} is a binary flag set only by the main thread (to 1 if the threads can return or 0 if they need to continue.)
+\subsection{MPI Strategy}
 
-I used two barriers to synchronise threads, as illustrated in Figures \ref{fig:workers} and \ref{fig:main}. The first is hit once all the worker threads have relaxed their assigned cells and either set \texttt{global\_continue} or not set it. Once the main thread hits also this barrier, the worker threads hit the second barrier and wait. The main thread resets \texttt{global\_continue} if it has been set, ready for the next iteration. If \texttt{global\_continue} was zero, all threads have finished, so the main thread sets \texttt{global\_done} which will cause all the threads to return.
+There are three types of communication which need to happen during the execution of the program, all of them every iteration:
+\begin{enumerate}
+	\item Sending $2+\frac{n-2}{c}$ rows of the full matrix to each process.\par
+			As only a subset of the matrix is required by each process, \texttt{MPI\_Scatter} was the logical solution. However, Scatter requires all chunks to be the same size, which is only the case when $(n-2)$ mod $c=0$. The equivalent for unequal partitions is \texttt{MPI\_Scatterv}, so this is how I send data from the root process at the start of each iteration.
+	
+	\item Sending $\frac{n-2}{c}$ relaxed rows from each process back to the root. \par
+			This communication is essentially symmetric to the previous, so I used \texttt{MPI\_Scatterv}'s counterpart \texttt{MPI\_Gatherv} to communicate the relaxed cells back to the root process.
+			
+	\item Communication between all processes as to whether another iteration is required.\par
+			I considered adding an extra cell to each array sent back to the root process in the previous communication to piggyback the completion status of each processor with its data, but ultimately this seemed an untidy solution to a problem which \texttt{MPI\_Allreduce} could solve. I therefore reduce the \texttt{MPI\_SUM} operation over the values of \texttt{local\_continue} on every processor (where any positive value indicates a cell which has not yet reached the required precision.) If any processor needs to continue, they must all continue.
+\end{enumerate}
 
-There is obvious contention for \texttt{global\_continue} between all threads which may want to increment it. However, I avoided having to use a lock by treating any non-zero value as \texttt{true}. Either an arbitrary number of threads assign \texttt{global\_continue = 1} in succession (which will be read by the main thread as \texttt{true}) or two or more of the assignments happen simultaneously and the value is still a non-zero one (and will therefore still be read by the main thread as \texttt{true}.) This particular case of race has been found to be acceptably safe \citep{benigndataraces}.
-
-\begin{figure}[!htb]
-    \begin{minipage}{.47\textwidth}
-        \hspace{-1.6cm}\includegraphics[width=2.4\textwidth]{img/workersflowchart.pdf}
-        \caption{Worker thread control flow}
-        \label{fig:workers}
-    \end{minipage}\hspace{1.65cm}
-    \begin{minipage}{0.47\textwidth}
-       \hspace{-1cm}\includegraphics[width=2.4\textwidth]{img/mainflowchart.pdf}
-        \caption{Main thread control flow}
-        \label{fig:main}
-    \end{minipage}
-\end{figure}
-None of my worker threads allocate thread-local variables on the heap, as this is unnecessary and also requires allocator and deallocator synchronisation across every thread \citep{contention}.
 
 \section{Correctness Testing}
 
@@ -158,12 +158,12 @@ The hand-computed results show my checking of the maximum delta for each array a
 Once I had verified the correctness of my relaxation implementation, I chose a fixed array size and precision, and ran my program relaxing the same array with 1-16 threads. The time, speedup and efficiency (speedup achieved by $n$ processors divided by $n$ \citep{speedup}) for this can be seen in Figures \ref{fig:basict} and \ref{fig:basics}. 
 \begin{figure}[!htb]
     \begin{minipage}{.46\textwidth}
-        \hspace{-0.8cm}\includegraphics[width=1.1\textwidth]{img/basic-threads-time.pdf}
+%        \hspace{-0.8cm}\includegraphics[width=1.1\textwidth]{img/basic-threads-time.pdf}
         \centering\caption{Time for 1-16 threads to relax the same matrix, $d=1000$, $p=0.5$}
         \label{fig:basict}
     \end{minipage}\hspace{0.4cm}
     \begin{minipage}{0.53\textwidth}
-       \hspace{-0.8cm}\includegraphics[width=1.1\textwidth]{img/basic-threads-speedup.pdf}
+%       \hspace{-0.8cm}\includegraphics[width=1.1\textwidth]{img/basic-threads-speedup.pdf}
         \centering\caption{Speedup and efficiency achieved by 1-16 threads relaxing the matrix, $d=1000$, $p=0.5$}
         \label{fig:basics}
     \end{minipage}
@@ -175,12 +175,12 @@ The speedup I achieved for this problem size was sub-linear, but close to linear
 
 \begin{figure}[!htb]
     \begin{minipage}{.46\textwidth}
-        \hspace{-0.8cm}\includegraphics[width=1.1\textwidth]{img/cliff-threads-time.pdf}
+%        \hspace{-0.8cm}\includegraphics[width=1.1\textwidth]{img/cliff-threads-time.pdf}
         \centering\caption{Time for 2-32 threads to relax the same matrix, $d=1000$, $p=0.5$}
         \label{fig:clifft}
     \end{minipage}\hspace{0.4cm}
     \begin{minipage}{0.53\textwidth}
-       \hspace{-0.8cm}\includegraphics[width=1.1\textwidth]{img/cliff-threads-speedup.pdf}
+%       \hspace{-0.8cm}\includegraphics[width=1.1\textwidth]{img/cliff-threads-speedup.pdf}
         \centering\caption{Speedup achieved by 2-32 threads relaxing the matrix, $d=1000$, $p=0.5$}
         \label{fig:cliffs}
     \end{minipage}
@@ -192,7 +192,7 @@ The second factor I tested was the effect of varying the matrix dimensions on th
 
 \begin{figure}[h!]
 	\centering
-	\hspace{-0.5cm}\includegraphics[width=.85\textwidth]{img/dimension-time}
+%	\hspace{-0.5cm}\includegraphics[width=.85\textwidth]{img/dimension-time}
 	\caption{Matrix dimensions against time for 1 (light grey), 8 (medium grey) and 16 (dark grey) threads.}
 	\label{fig:dimension}
 \end{figure}
@@ -204,7 +204,7 @@ Consider the values which intersect the dotted line in Figure \ref{fig:dimension
 I conducted a single experiment into the effects of lowering the precision threshold on the time and iterations required for my solution to terminate. Below are the results for a fixed array with $d=500$ and 16 threads\footnote{Full data in Appendix \ref{sec:prec}}, showing iterations and time increasing at the same rate as the precision threshold is lowered.
 
 \begin{figure}[h!]
-	\hspace{-0.8cm}\includegraphics[width=1.1\textwidth]{img/prec-time.pdf}
+%	\hspace{-0.8cm}\includegraphics[width=1.1\textwidth]{img/prec-time.pdf}
 	\caption{Precision values against iterations and time}
 	\label{fig:precision}
 \end{figure}
@@ -217,14 +217,14 @@ To determine whether there were any simple optimisations I could make to my impl
 In \texttt{callgrind}, I ordered functions by cycle count (ignoring cycle counts of their callees). Although cycle count is not perfectly analogous to latency, it is the closest metric callgrind provides. This allowed me to see the functions which were dominating execution cycles, as shown in Figure \ref{fig:top-cycles}.
 \begin{figure}[!h]
 \centering
-\includegraphics[width=.5\textwidth]{img/top-ten.png}
+%\includegraphics[width=.5\textwidth]{img/top-ten.png}
 \caption{The top ten functions by self-cycles}
 \label{fig:top-cycles}
 \end{figure}
 At the lower end of the list are functions which can be expected such as \texttt{main}, functions prefixed \texttt{dl\_} which are the dynamic linker loading pthread library functions, and functions responsible for populating the array with random numbers. None of these are associated with the actual relaxation logic. 
 
 \begin{figure}[htbp!]
-\hspace{-0.7cm}\includegraphics[width=1.1\textwidth]{img/cg.png}
+%\hspace{-0.7cm}\includegraphics[width=1.1\textwidth]{img/cg.png}
 \caption{Call graph showing \texttt{relax\_cell} and \texttt{relax\_section}}
 \label{fig:cg}
 \end{figure}
@@ -234,19 +234,6 @@ The top two functions; \texttt{relax\_cell} and its caller, my thread function \
 There was no obvious improvement which could be made to the logic in \texttt{relax\_cell}, as Figure \ref{fig:source-cycles} shows the average cycles to be fairly similar for all source lines which need to access the array (implying the cycles are due to load latency of the data), and for the assignment of the variable \texttt{new} (where the cycles would be due to latency of the store).
 
 To confirm this, I used the \texttt{cachegrind} tool on the same input and looked at the L1 misses for reads and writes in \texttt{relax\_cell} (See Figure \ref{fig:source-misses}.)
-
-\begin{figure}[htbp!]
-    \begin{minipage}{.49\textwidth}
-        \hspace{-0.3cm}\includegraphics[width=\textwidth]{img/source-cycles}
-        \centering\caption{Cycles detection averages in \texttt{relax\_cell}}
-        \label{fig:source-cycles}
-    \end{minipage}\hspace{0.8cm}
-    \begin{minipage}{0.49\textwidth}
-       \hspace{-0.3cm}\includegraphics[width=\textwidth]{img/source-misses.png}
-        \centering\caption{L1 Cache Read (light green) and Write (dark green) misses in \texttt{relax\_cell}}
-        \label{fig:source-misses}
-    \end{minipage}
-\end{figure}
 
 There is no easy fix for cache misses, as this is clearly a physical constraint and therefore machine-specific. Consequentially, as I had identified \texttt{relax\_cell} as the single critical performance hotspot in my application, I did not do any further performance tuning as it would have yielded inconsequential improvements.
 
