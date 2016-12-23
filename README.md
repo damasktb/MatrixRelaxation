@@ -1,5 +1,5 @@
 + Compile with: mpicc -std=gnu99 main.c -o mpi-relax
-+ Run with: mpirun -np $tasks ./relax [optargs]
++ Run with: mpirun -np $tasks ./mpi-relax [optargs]
 
 Where [optargs] are:
 
