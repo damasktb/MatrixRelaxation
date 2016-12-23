@@ -143,9 +143,10 @@ int main(int argc, char** argv)
         // Offset starting at the row after the top boundary
         rcv_offset[proc] = send_offset[proc] + read_only/2;
 
-        if (world_rank == 0)
+        if (args.verbosity && world_rank == ROOT_PROC)
         {
-            printf("World size is %d. Process %d doing %d rows at offset %d.\n", world_size, proc, rcv_counts[proc]/ncols, rcv_offset[proc]/ncols);
+            printf("Process %d doing %d rows at offset %d.\n", proc, 
+                rcv_counts[proc]/ncols, rcv_offset[proc]/ncols);
         }
     }
 

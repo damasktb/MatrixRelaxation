@@ -154,50 +154,53 @@ $$
 The hand-computed results show my checking of the maximum delta for each array after relaxing it to determine whether another iteration is required. Once I verified that my implementation was correct with one thread, I relaxed under the same conditions with 2-9 threads, printing all intermediate values and the iteration count at termination. I then used the Unix \texttt{diff} utility to check all 9 outputs were identical. These files have been included in the \texttt{correctness} directory, for verification.
 
 \section{Scalability Investigation}
+
 \subsection{Fixed Problem Size}
-Once I had verified the correctness of my relaxation implementation, I chose a fixed array size and precision, and ran my program relaxing the same array with 1-16 threads. The time, speedup and efficiency (speedup achieved by $n$ processors divided by $n$ \citep{speedup}) for this can be seen in Figures \ref{fig:basict} and \ref{fig:basics}. 
-\begin{figure}[!htb]
-    \begin{minipage}{.46\textwidth}
-%        \hspace{-0.8cm}\includegraphics[width=1.1\textwidth]{img/basic-threads-time.pdf}
-        \centering\caption{Time for 1-16 threads to relax the same matrix, $d=1000$, $p=0.5$}
-        \label{fig:basict}
-    \end{minipage}\hspace{0.4cm}
-    \begin{minipage}{0.53\textwidth}
-%       \hspace{-0.8cm}\includegraphics[width=1.1\textwidth]{img/basic-threads-speedup.pdf}
-        \centering\caption{Speedup and efficiency achieved by 1-16 threads relaxing the matrix, $d=1000$, $p=0.5$}
-        \label{fig:basics}
-    \end{minipage}
+Once I had verified the correctness of my relaxation implementation, I chose a fixed array size and precision, and ran my program relaxing the same array with 1-64 cores across 1-4 nodes.  The time, speedup and efficiency (speedup achieved by $n$ processors divided by $n$ \citep{speedup}) relative to the serial program can be seen in Figures \ref{fig:time15}, \ref{fig:sp15}, and \ref{fig:eff15}. 
+\begin{figure}[!htbp]
+        \centering\includegraphics[width=\textwidth]{img/basic-cpus-time.pdf}
+        \caption{Time taken for 1-64 cores to relax the same matrix, $d=15000$, $p=0.01$}
+        \label{fig:time15}
+\end{figure}
+\begin{figure}[!htbp]
+        \centering\includegraphics[width=\textwidth]{img/15kspeedup.pdf}
+        \caption{Speedup achieved by 1-64 cores relaxing the same matrix, $d=15000$, $p=0.01$}
+        \label{fig:sp15}
+\end{figure}
+\begin{figure}[!htbp]
+        \centering\includegraphics[width=\textwidth]{img/15kefficiency.pdf}
+        \caption{Efficiency of 1-64 to relax the same matrix, $d=15000$, $p=0.01$}
+        \label{fig:eff15}
 \end{figure}
 
-Each thread\footnote{The thread counts specified in this section refer to worker threads, i.e. the main thread is not included.} saw efficiency reduce, as the speedup had a progressively smaller impact on the time reduction (diminishing returns; \citep{Amdahl}). This is consistent with Amdahl's law, a corollary of which states that for P processors and a computation whose sequential proportion is denoted $f$, predicted speedup is bound by $\frac{1}{f}$ \citep{springer}. Working backwards from this upper bound and assuming a maximum speedup of 14.5, this would imply that the sequential proportion of my solution is $\leq 0.069$, or 6.9\% of the total computation for this fixed problem size. It is important to note that the sequential proportion is not fixed, as changing the number of threads, precision or dimensions would alter the overhead needed to allocate, assign thread work, and wait at barriers.
+Each additional CPU saw efficiency reduce exponentially, as the speedup had a progressively smaller impact on the time reduction (the principle of diminishing returns; \citep{Amdahl}). This is consistent with Amdahl's law, a corollary of which states that for P processors and a computation whose sequential proportion is denoted $f$, predicted speedup is bound by $\frac{1}{f}$ \citep{springer}. Working backwards from this upper bound and assuming a maximum speedup of 4.2, this would imply that the sequential proportion of my solution is $\leq 0.238$, or 23.8\% of the total computation for this fixed problem size. It is important to note that the sequential proportion is not fixed, as changing the number of cores, precision or dimensions would alter the overhead needed to allocate, assign thread work, and wait at barriers.
 
-The speedup I achieved for this problem size was sub-linear, but close to linear. The sequential proportion of the computation appears to become the limiting factor above 16 threads, preventing further speedup through parallelisation.\footnote{Full data in Appendix \ref{sec:basic}.} In order to verify this, I repeated the experiment with even numbers of threads between 2 and 32 on the same matrix. The resulting time, speedup and efficiency values can be seen in Figures \ref{fig:clifft} and \ref{fig:cliffs}, with the values for 1 thread (i.e. the sequential computation) left in for comparison.\footnote{Full data in Appendix \ref{sec:cliff}.}
+Also consistent with expectation was the timing and efficiency of different configuratoins for the same number of cores; i.e. one node with 12 cores (1m 14s 745ms, 25.1\% efficiency), two nodes each with six cores (1m 10s 12ms, 26.8\% efficiency), three nodes with four cores (1m 5s 932ms, 28.4\% efficiency), and four nodes with three (1m 4s 357ms, 29.1\% efficiency). Although the absolute difference in timing between the slowest and fastest configuration is under 11 seconds, the relative efficiencies differ by 4\%. 
 
-\begin{figure}[!htb]
-    \begin{minipage}{.46\textwidth}
-%        \hspace{-0.8cm}\includegraphics[width=1.1\textwidth]{img/cliff-threads-time.pdf}
-        \centering\caption{Time for 2-32 threads to relax the same matrix, $d=1000$, $p=0.5$}
-        \label{fig:clifft}
-    \end{minipage}\hspace{0.4cm}
-    \begin{minipage}{0.53\textwidth}
-%       \hspace{-0.8cm}\includegraphics[width=1.1\textwidth]{img/cliff-threads-speedup.pdf}
-        \centering\caption{Speedup achieved by 2-32 threads relaxing the matrix, $d=1000$, $p=0.5$}
-        \label{fig:cliffs}
-    \end{minipage}
-\end{figure}
+The speedup I achieved for this problem size was significantly sub-linear in terms of Amdahl's law. The limiting factor is the relatively slow speed of communication between cores, and as the volume of communication necessary increases proportionally to the number of cores, the overhead increases in line with this. The fact that the timing, speedup and efficiency curves are similarly asymptotic for all numbers of nodes suggests that intra-node communication speeds are not as much of a limiting factor as intra-core speeds.
 
 \subsection{Variable Problem Size}
 
-The second factor I tested was the effect of varying the matrix dimensions on the time, for various thread counts. The results of this can be seen in Figure \ref{fig:dimension}\footnote{Full data in Appendix \ref{sec:dt}}. The x-axis in the graph is scaled with respect to dimensions but not size, since the actual computation required for each dimension is proportional to the square of the dimension, not the dimension itself.
+The second factor I tested was the effect of varying the matrix dimensions on the time, for various numbers of cores. The results of this can be seen in Figures \ref{fig:dimension-time} and \ref{fig:dimension-sp}\footnote{Full data in Appendix \ref{sec:dt}}. The x-axis in the graph is scaled according to the square of the dimensions tested rather than the dimensions themselves, as the problem size is equal to the number elements of the matrix.
 
-\begin{figure}[h!]
-	\centering
-%	\hspace{-0.5cm}\includegraphics[width=.85\textwidth]{img/dimension-time}
-	\caption{Matrix dimensions against time for 1 (light grey), 8 (medium grey) and 16 (dark grey) threads.}
-	\label{fig:dimension}
+\begin{figure}[htbp!]
+	\centering\includegraphics[width=\textwidth]{img/dimension-time.pdf}
+	\caption{Matrix size against time for 16, 32, 48 and 64 cores.}
+	\label{fig:dimension-time}
 \end{figure}
 
-Consider the values which intersect the dotted line in Figure \ref{fig:dimension}. In one minute, one thread can relax a 3000$^2$ matrix, with 9,000,000 elements. In the same amount of time, eight threads can relax a 7000$^2$ matrix (49,000,000 elements, and a speedup of 7) and sixteen threads can relax approximately 8500$^2$ (72,250,000 elements, and a speedup of 8.03). The relative drop in speedup from 1-8 and 8-16 threads again demonstrates the effect  of diminishing returns and efficiency; the efficiency of eight threads is $7\div{}8=$ 87.5\%; for sixteen threads this becomes $8.03\div{}16=$ 50.1\%. It is important to note however that the most efficient number of processors is not the number which will yield the greatest absolute speedup. Mathematically, peak efficiency is reached by maximising $\frac{\text{speedup}}{n}$, which is equivalent to $\frac{T_\text{seq}}{n\times{T_n}}$. $T_\text{seq}$ is fixed, so maximum efficiency is found minimising $n\times{T_n}$; the solution to which will be $n=1$ unless speedup is superlinear. 
+\begin{figure}[htbp!]
+	\centering\includegraphics[width=\textwidth]{img/dimension-speedup}
+	\caption{Matrix size against speedup for 16, 32, 48 and 64 cores.}
+	\label{fig:dimension-sp}
+\end{figure}
+
+Time taken increases roughly linearly for a linear increase in matrix size size, as diminishing returns does not apply in the same way to variable problem sizes with fixed computational resources. The maximum matrix dimension my solutions were able to relax was $45000\times{}45000$, after which 32-64 cores exceed the ten minute timeout on Balena. Below 32 cores, the maximum dimensions reached were $42500\times{}42500$.
+
+Figure \ref{fig:dimension-sp} shows the initial speedup achieved up until $20000\times{}20000$, at which point the serial implementation times out and there is nothing against which to benchmark speedup. Initially, 16 cores exhibits the best speedup due to the small problem size; the overhead of sending data off-core to relax dwarfs the relaxation time below $5000\times{}5000$. Above these dimensions, 16 cores settles to a stable speedup of 1.9, with 32 cores seeing an average speedup of 3.4 and 64 cores exhibiting slightly worse speedup than 48 cores above $15000\times{}15000$.
+
+Gustafson's Law argues that as problem size increases, the sequential part of a computation decreases relatively and therefore the speedup achieved by $p$ processors for problem size $n$ is not bound by the sequential proportion $f$ as in Amdahl's law, but $p$ itself (with $S_p = p$ being perfect speedup). However, this law has been shown to be equivalent to Amdahl's law \citep{reevaluating} so I chose not to calculate speedup again.
+
 
 \subsection{Precision}
 
@@ -209,36 +212,6 @@ I conducted a single experiment into the effects of lowering the precision thres
 	\label{fig:precision}
 \end{figure}
 I tried to run my solution on a precision of 0.0000001, but it timed out on Balena, due to either exceeding the 15 minute limit while relaxing, or reaching the point at which applying the relax operation left every cell unchanged. Not every matrix when relaxed to under a given precision will terminate. My implementation does not attempt to identify these cases and would therefore loop infinitely for precision values which aren't reachable for a given matrix.
-
-\section{Cycle Accounting}
-
-To determine whether there were any simple optimisations I could make to my implementation to improve speeds, I ran it on Balena under Valgrind, using the \texttt{callgrind} and \texttt{cachegrind} tools. I then exported the output file and analysed it with qcachegrind\footnote{https://kcachegrind.github.io/html/Home.html}.
-
-In \texttt{callgrind}, I ordered functions by cycle count (ignoring cycle counts of their callees). Although cycle count is not perfectly analogous to latency, it is the closest metric callgrind provides. This allowed me to see the functions which were dominating execution cycles, as shown in Figure \ref{fig:top-cycles}.
-\begin{figure}[!h]
-\centering
-%\includegraphics[width=.5\textwidth]{img/top-ten.png}
-\caption{The top ten functions by self-cycles}
-\label{fig:top-cycles}
-\end{figure}
-At the lower end of the list are functions which can be expected such as \texttt{main}, functions prefixed \texttt{dl\_} which are the dynamic linker loading pthread library functions, and functions responsible for populating the array with random numbers. None of these are associated with the actual relaxation logic. 
-
-\begin{figure}[htbp!]
-%\hspace{-0.7cm}\includegraphics[width=1.1\textwidth]{img/cg.png}
-\caption{Call graph showing \texttt{relax\_cell} and \texttt{relax\_section}}
-\label{fig:cg}
-\end{figure}
-
-The top two functions; \texttt{relax\_cell} and its caller, my thread function \texttt{relax\_section} account for the vast majority of cycles. Figure \ref{fig:cg} shows that the 4,980,020 calls (over 5 iterations) to \texttt{relax\_cell} account for 79.02\% of the cycles accross the 16 (one for each thread) calls to  \texttt{relax\_section}.
-
-There was no obvious improvement which could be made to the logic in \texttt{relax\_cell}, as Figure \ref{fig:source-cycles} shows the average cycles to be fairly similar for all source lines which need to access the array (implying the cycles are due to load latency of the data), and for the assignment of the variable \texttt{new} (where the cycles would be due to latency of the store).
-
-To confirm this, I used the \texttt{cachegrind} tool on the same input and looked at the L1 misses for reads and writes in \texttt{relax\_cell} (See Figure \ref{fig:source-misses}.)
-
-There is no easy fix for cache misses, as this is clearly a physical constraint and therefore machine-specific. Consequentially, as I had identified \texttt{relax\_cell} as the single critical performance hotspot in my application, I did not do any further performance tuning as it would have yielded inconsequential improvements.
-
-I have included the output from valgrind in both \texttt{callgrind} and \texttt{cachegrind} mode in the \texttt{valgrind} directory, from which all of the figures in this section can be reconstructed and explored. The options used for this run of my program were $d=1000$, $p=5.0$ and $t=16$.
-
 
 \clearpage
 
