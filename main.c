@@ -22,6 +22,7 @@ int is_edge(int nrows, int ncols, int i)
         ||  (i+1)%ncols == 0 );      // Right edge
 }
 
+// Print a 2d nrows*ncols matrix stored in a contiguous 1d array
 void print_matrix(double *arr, int nrows, int ncols) 
 {   
     for (int cell=0; cell<nrows*ncols; ++cell)

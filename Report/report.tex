@@ -86,9 +86,7 @@ There are three types of communication which need to happen during the execution
 
 \section{Correctness Testing}
 
-To verify that my implementation of relaxation was correct, I first manually calculated the first three iterations of the top left corner of the initial matrix from my solution. The advantage to using a matrix of all zeroes with ones on the boundary values is that regardless of matrix size, the same number of iterations are always required to reach a given precision. 
-
-I then confirmed that my solution generated the same intermediate matrices by running it in verbose mode so it would print matrix state at the end of every iteration.
+To verify that my implementation of relaxation was correct, I first manually calculated the first three iterations of the top left corner of the initial matrix from my solution. I then confirmed that my solution generated the same intermediate matrices by running it in verbose mode so it would print the matrix state at the end of every iteration.
 
 \begin{minipage}{.45\textwidth}
 $$
@@ -128,6 +126,7 @@ $$
 
 These files are too large to include themselves, so instead I have included the output from \texttt{diff} for two and three nodes against one node, for verification.
 
+\clearpage
 \section{Scalability Investigation}
 
 \subsection{Fixed Problem Size}
@@ -149,7 +148,7 @@ Once I had verified the correctness of my relaxation implementation, I chose a f
         \label{fig:eff15}
 \end{figure}
 
-Each additional CPU saw efficiency reduce exponentially, as the speedup had a progressively smaller impact on the time reduction (the principle of diminishing returns; \citep{Amdahl}). This is consistent with Amdahl's law, a corollary of which states that for P processors and a computation whose sequential proportion is denoted $f$, predicted speedup is bound by $\frac{1}{f}$ \citep{springer}. Working backwards from this upper bound and assuming a maximum speedup of 4.2, this would imply that the sequential proportion of my solution is $\leq 0.238$, or 23.8\% of the total computation for this fixed problem size. It is important to note that the sequential proportion is not fixed, as changing the number of cores, precision or dimensions would alter the overhead needed to allocate, assign thread work, and wait at barriers.
+Each additional CPU saw efficiency reduce exponentially, as the speedup had a progressively smaller impact on the time reduction (the principle of diminishing returns; \citep{Amdahl}). This is consistent with Amdahl's law, a corollary of which states that for P processors and a computation whose sequential proportion is denoted $f$, predicted speedup is bound by $\frac{1}{f}$ \citep{springer}. Working backwards from this upper bound and assuming a maximum speedup of 4.2, this would imply that the sequential proportion of my solution is $\leq 0.238$, or 23.8\% of the total computation for this fixed problem size. It is important to note that the sequential proportion is not fixed, as changing the number of cores, precision or dimensions would alter the overhead needed to allocate, assign process work, and wait at barriers.
 
 The speedup I achieved for this problem size was significantly sub-linear in terms of Amdahl's law. The limiting factor is the relatively slow speed of communication between cores, and as the volume of communication necessary increases proportionally to the number of cores, the overhead increases in line with this. The fact that the timing, speedup and efficiency curves are similarly asymptotic for all numbers of nodes suggests that intra-node communication speeds are not as much of a limiting factor as memory access for sensibly large problem sizes.
 
