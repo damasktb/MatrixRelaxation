@@ -1,0 +1,25 @@
+[dtstb20@balena-02 1k]$ diff N1-TPN1-batch-1000.out N3-TPN1-batch-1000.out
+37040,37043c37040,37043
+< real	0m43.197s
+< user	0m14.772s
+< sys	0m2.331s
+< Nodes: 1, Tasks per node: 1, dimension: 1000, precision: 0.010000
+---
+> real	0m44.621s
+> user	0m12.901s
+> sys	0m4.859s
+> Nodes: 3, Tasks per node: 1, dimension: 1000, precision: 0.010000
+37048,37050c37048,37050
+< JobID          : 552383
+< No. of nodes   : 1
+< No. of CPUs    : 16
+---
+> JobID          : 552385
+> No. of nodes   : 3
+> No. of CPUs    : 48
+37052,37053c37052,37053
+< Elapsed time   : 00:00:47
+< Nodelist       : node-sw-161
+---
+> Elapsed time   : 00:00:48
+> Nodelist       : node-sw-[074,093-094]
